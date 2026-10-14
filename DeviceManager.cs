@@ -197,8 +197,10 @@ namespace XBOX_One_Drive_Converter
             {
                 if (ReadFile(handleValue, MBR_Buffer, MBR_SIZE, out bytesRead, IntPtr.Zero) == 0 || bytesRead != MBR_SIZE)
                 {
-                    throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error(),
-                        "Could not read the first sector (read " + bytesRead + " bytes).");
+                    int rerr = Marshal.GetLastWin32Error();
+                    throw new System.ComponentModel.Win32Exception(rerr,
+                        "Could not read the first sector (read " + bytesRead + " bytes). Windows error "
+                        + rerr + ": " + new System.ComponentModel.Win32Exception(rerr).Message);
                 }
 
                 // Read the signature value and see if it is an XBOX or PC Device.
@@ -234,8 +236,10 @@ namespace XBOX_One_Drive_Converter
                 SetFilePointer(handleValue, 0x00, IntPtr.Zero, EMoveMethod.Begin);
                 if (WriteFile(handleValue, MBR_Buffer, MBR_SIZE, out bytesWritten, IntPtr.Zero) == 0 || bytesWritten != MBR_SIZE)
                 {
-                    throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error(),
-                        "Writing the first sector failed (wrote " + bytesWritten + " bytes).");
+                    int werr = Marshal.GetLastWin32Error();
+                    throw new System.ComponentModel.Win32Exception(werr,
+                        "Writing the first sector failed (wrote " + bytesWritten + " bytes). Windows error "
+                        + werr + ": " + new System.ComponentModel.Win32Exception(werr).Message);
                 }
                 FlushFileBuffers(handleValue);
             }
