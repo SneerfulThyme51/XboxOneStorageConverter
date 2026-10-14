@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -174,45 +174,75 @@ namespace XBOX_One_Drive_Converter
             return detectedXboxDevices;
         }
 
+        [DllImport("kernel32", SetLastError = true)]
+        static extern bool FlushFileBuffers(SafeFileHandle handle);
+
         public static void ChangeDeviceMode(string deviceName, DeviceMode mode)
         {
             byte[] MBR_Buffer = new byte[MBR_SIZE];
             int bytesRead = 0, bytesWritten = 0;
 
-            SafeFileHandle handleValue = CreateFile(deviceName, GENERIC_READ | GENERIC_WRITE, 0, IntPtr.Zero, OPEN_EXISTING, 0, IntPtr.Zero);
+            // Share Read|Write so a Windows service holding the disk open doesn't block us.
+            SafeFileHandle handleValue = CreateFile(deviceName, GENERIC_READ | GENERIC_WRITE,
+                (uint)(EFileShare.Read | EFileShare.Write), IntPtr.Zero, OPEN_EXISTING, 0, IntPtr.Zero);
             if (handleValue.IsInvalid)
             {
+                int err = Marshal.GetLastWin32Error();
+                handleValue.Close();
+                throw new System.ComponentModel.Win32Exception(err,
+                    "Could not open " + deviceName + " for writing. Run as administrator and close anything using the drive.");
+            }
+
+            try
+            {
+                if (ReadFile(handleValue, MBR_Buffer, MBR_SIZE, out bytesRead, IntPtr.Zero) == 0 || bytesRead != MBR_SIZE)
+                {
+                    throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error(),
+                        "Could not read the first sector (read " + bytesRead + " bytes).");
+                }
+
+                // Read the signature value and see if it is an XBOX or PC Device.
+                byte[] MBR_Signature = new byte[MBR_SIGNATURE_SIZE];
+                MBR_Signature[0] = MBR_Buffer[MBR_SIGNATURE_OFFSET];
+                MBR_Signature[1] = MBR_Buffer[MBR_SIGNATURE_OFFSET + 1];
+
+                bool isXbox = MBR_Signature.SequenceEqual(XBOX_Signature);
+                bool isPC = MBR_Signature.SequenceEqual(PC_Signature);
+
+                if (mode == DeviceMode.Xbox && isPC)
+                {
+                    MBR_Buffer[MBR_SIGNATURE_OFFSET] = XBOX_Signature[0];
+                    MBR_Buffer[MBR_SIGNATURE_OFFSET + 1] = XBOX_Signature[1];
+                }
+                else if (mode == DeviceMode.PC && isXbox)
+                {
+                    MBR_Buffer[MBR_SIGNATURE_OFFSET] = PC_Signature[0];
+                    MBR_Buffer[MBR_SIGNATURE_OFFSET + 1] = PC_Signature[1];
+                }
+                else if (isXbox || isPC)
+                {
+                    // Don't make any changes to the disk -- it's already in the proper mode.
+                    return;
+                }
+                else
+                {
+                    throw new InvalidOperationException(string.Format(
+                        "Unexpected boot signature {0:X2} {1:X2}. Nothing was changed.",
+                        MBR_Signature[0], MBR_Signature[1]));
+                }
+
+                SetFilePointer(handleValue, 0x00, IntPtr.Zero, EMoveMethod.Begin);
+                if (WriteFile(handleValue, MBR_Buffer, MBR_SIZE, out bytesWritten, IntPtr.Zero) == 0 || bytesWritten != MBR_SIZE)
+                {
+                    throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error(),
+                        "Writing the first sector failed (wrote " + bytesWritten + " bytes).");
+                }
+                FlushFileBuffers(handleValue);
+            }
+            finally
+            {
                 handleValue.Close();
             }
-
-            ReadFile(handleValue, MBR_Buffer, MBR_SIZE, out bytesRead, IntPtr.Zero);
-
-            // Read the signature value and see if it is an XBOX or PC Device.
-            byte[] MBR_Signature = new byte[MBR_SIGNATURE_SIZE];
-            MBR_Signature[0] = MBR_Buffer[MBR_SIGNATURE_OFFSET];
-            MBR_Signature[1] = MBR_Buffer[MBR_SIGNATURE_OFFSET + 1];
-
-            if (mode == DeviceMode.Xbox && MBR_Signature.SequenceEqual(PC_Signature))
-            {
-                MBR_Buffer[MBR_SIGNATURE_OFFSET] = XBOX_Signature[0];
-                MBR_Buffer[MBR_SIGNATURE_OFFSET + 1] = XBOX_Signature[1];
-            }
-            else if (mode == DeviceMode.PC && MBR_Signature.SequenceEqual(XBOX_Signature))
-            {
-                MBR_Buffer[MBR_SIGNATURE_OFFSET] = PC_Signature[0];
-                MBR_Buffer[MBR_SIGNATURE_OFFSET + 1] = PC_Signature[1];
-            }
-            else
-            {
-                // Don't make any changes to the disk -- it's already in the proper mode.
-                handleValue.Close();
-                return;
-            }
-
-            SetFilePointer(handleValue, 0x00, IntPtr.Zero, EMoveMethod.Begin);
-            WriteFile(handleValue, MBR_Buffer, MBR_SIZE, out bytesWritten, IntPtr.Zero);
-
-            handleValue.Close();
         }
 
         public static void FormatLogicalDrive(DriveInfo drive)
