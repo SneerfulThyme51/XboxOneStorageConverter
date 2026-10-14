@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
@@ -84,9 +84,19 @@ namespace XBOX_One_Drive_Converter
         private void changeDeviceMode(DeviceManager.DeviceMode mode)
         {
             Cursor.Current = Cursors.WaitCursor;
-            DeviceManager.ChangeDeviceMode(DetectedXBOXDrivesGridView.SelectedRows[0].Cells["DeviceName"].Value.ToString(), mode);
-            refreshDrives();
-            Cursor.Current = Cursors.Default;
+            try
+            {
+                DeviceManager.ChangeDeviceMode(DetectedXBOXDrivesGridView.SelectedRows[0].Cells["DeviceName"].Value.ToString(), mode);
+                refreshDrives();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.Message, "Could not change drive mode", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                Cursor.Current = Cursors.Default;
+            }
         }
 
 
